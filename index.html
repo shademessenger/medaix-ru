@@ -256,8 +256,22 @@
         headers: payload ? { "Content-Type": "application/json; charset=utf-8" } : {},
         body: payload ? JSON.stringify(payload) : undefined
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t.error);
+      const raw = await res.text();
+      console.log("[api] status", res.status, path);
+      console.log("[api] raw body", raw);
+
+      let data = null;
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (error) {
+        throw new Error(
+          "API returned non-JSON response (" + res.status + "): " + raw.slice(0, 180)
+        );
+      }
+
+      if (!res.ok) {
+        throw new Error((data && data.error) || t.error);
+      }
       return data;
     }
 
