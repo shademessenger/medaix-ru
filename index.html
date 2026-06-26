@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>medaix ru</title>
   <link rel="icon" href="/ai/assets/avatar.png">
   <style>
@@ -23,8 +23,10 @@
       outline: 0;
     }
     html, body {
-      touch-action: manipulation;
+      touch-action: pan-y;
       overscroll-behavior: none;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
     }
     body {
       margin: 0;
@@ -130,6 +132,7 @@
       border-radius: 7px;
       padding: 10px 11px;
       font: inherit;
+      font-size: 16px;
       background: white;
       color: var(--text);
     }
@@ -295,10 +298,20 @@
     document.addEventListener("gesturestart", (event) => event.preventDefault(), { passive: false });
     document.addEventListener("gesturechange", (event) => event.preventDefault(), { passive: false });
     document.addEventListener("gestureend", (event) => event.preventDefault(), { passive: false });
+    document.addEventListener("touchstart", (event) => {
+      if (event.touches && event.touches.length > 1) event.preventDefault();
+    }, { passive: false });
     document.addEventListener("touchmove", (event) => {
       if (event.touches && event.touches.length > 1) event.preventDefault();
     }, { passive: false });
     document.addEventListener("dblclick", (event) => event.preventDefault(), { passive: false });
+    document.addEventListener("wheel", (event) => {
+      if (event.ctrlKey || event.metaKey) event.preventDefault();
+    }, { passive: false });
+    document.addEventListener("keydown", (event) => {
+      const zoomKey = ["+", "-", "=", "0"].includes(event.key);
+      if (zoomKey && (event.ctrlKey || event.metaKey)) event.preventDefault();
+    });
 
     function setStatus(text) { statusEl.textContent = text; }
 
