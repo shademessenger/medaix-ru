@@ -2,21 +2,30 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
   <title>medaix ru</title>
+  <link rel="icon" href="/ai/assets/avatar.png">
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f7f9;
-      --panel: #ffffff;
+      --bg: #f8f8f8;
+      --panel: #f8f8f8;
       --text: #17202a;
       --muted: #667085;
-      --line: #dde3ea;
+      --line: #e5e7eb;
       --accent: #0d7c66;
       --accent-dark: #095f4e;
       --danger: #b42318;
     }
     * { box-sizing: border-box; }
+    img {
+      border: 0;
+      outline: 0;
+    }
+    html, body {
+      touch-action: manipulation;
+      overscroll-behavior: none;
+    }
     body {
       margin: 0;
       height: 100vh;
@@ -37,14 +46,38 @@
       overflow: hidden;
     }
     header {
-      grid-column: 1 / -1;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
+      grid-column: 1;
+      grid-row: 1;
+      display: grid;
+      gap: 12px;
       padding: 4px 2px;
     }
-    h1 { font-size: 24px; margin: 0; letter-spacing: 0; }
+    .hero-frame {
+      min-height: 180px;
+      border: 0;
+      outline: 0;
+      border-radius: 0;
+      overflow: hidden;
+      background: var(--panel);
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+    }
+    .hero-image {
+      display: block;
+      width: 100%;
+      height: 180px;
+      border: 0;
+      outline: 0;
+      object-fit: contain;
+      background: var(--panel);
+    }
+    .safe-image {
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-user-drag: none;
+    }
     .status { color: var(--muted); font-size: 14px; }
     .panel {
       background: var(--panel);
@@ -100,7 +133,7 @@
       background: white;
       color: var(--text);
     }
-    textarea { min-height: 86px; resize: vertical; }
+    textarea { height: 86px; min-height: 86px; resize: none; }
     button {
       border: 0;
       border-radius: 7px;
@@ -115,6 +148,8 @@
     button:hover { background: var(--accent-dark); }
     button.danger { background: #fee4e2; color: var(--danger); }
     aside {
+      grid-column: 2;
+      grid-row: 1 / span 2;
       padding: 16px;
       min-height: 0;
       overflow: hidden;
@@ -156,7 +191,10 @@
     .item-text { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
     @media (max-width: 880px) {
       .app { grid-template-columns: 1fr; padding: 12px; }
-      header { align-items: flex-start; flex-direction: column; }
+      .hero-frame { min-height: 132px; }
+      .hero-image { height: 132px; }
+      header, aside { grid-column: auto; grid-row: auto; }
+      .hero-frame { justify-content: center; }
       body { overflow: auto; }
       .app { height: auto; min-height: 100vh; overflow: visible; }
       .chat { height: 58vh; }
@@ -168,11 +206,12 @@
 <body>
   <main class="app">
     <header>
-      <h1>medaix ru</h1>
-      <div class="status" id="status">&#1043;&#1086;&#1090;&#1086;&#1074; &#1082; &#1086;&#1073;&#1091;&#1095;&#1077;&#1085;&#1080;&#1102;</div>
+      <div class="hero-frame" aria-hidden="true">
+        <img class="hero-image safe-image" id="heroImage" src="/ai/assets/hero-v2.png?v=2" alt="" draggable="false" tabindex="-1">
+      </div>
     </header>
 
-    <section class="panel chat" aria-label="chat">
+    <section class="panel chat" aria-label="Чат">
       <div class="messages" id="messages"></div>
       <form class="composer" id="chatForm">
         <input id="message" autocomplete="off" placeholder="&#1053;&#1072;&#1087;&#1080;&#1096;&#1080;&#1090;&#1077; &#1074;&#1086;&#1087;&#1088;&#1086;&#1089;..." required>
@@ -189,7 +228,7 @@
           <option value="term">&#1058;&#1077;&#1088;&#1084;&#1080;&#1085;</option>
         </select>
         <input id="question" placeholder="&#1042;&#1086;&#1087;&#1088;&#1086;&#1089;, &#1090;&#1077;&#1088;&#1084;&#1080;&#1085; &#1080;&#1083;&#1080; &#1082;&#1083;&#1102;&#1095;&#1077;&#1074;&#1099;&#1077; &#1089;&#1083;&#1086;&#1074;&#1072;">
-        <textarea id="answer" placeholder="&#1060;&#1072;&#1082;&#1090; &#1080;&#1083;&#1080; &#1086;&#1090;&#1074;&#1077;&#1090;, &#1082;&#1086;&#1090;&#1086;&#1088;&#1099;&#1081; AI &#1076;&#1086;&#1083;&#1078;&#1077;&#1085; &#1079;&#1072;&#1087;&#1086;&#1084;&#1085;&#1080;&#1090;&#1100;" required></textarea>
+        <textarea id="answer" placeholder="&#1060;&#1072;&#1082;&#1090; &#1080;&#1083;&#1080; &#1086;&#1090;&#1074;&#1077;&#1090;, &#1082;&#1086;&#1090;&#1086;&#1088;&#1099;&#1081; &#1048;&#1048; &#1076;&#1086;&#1083;&#1078;&#1077;&#1085; &#1079;&#1072;&#1087;&#1086;&#1084;&#1085;&#1080;&#1090;&#1100;" required></textarea>
         <button type="submit">&#1057;&#1086;&#1093;&#1088;&#1072;&#1085;&#1080;&#1090;&#1100;</button>
         <div class="hint">&#1047;&#1072;&#1087;&#1080;&#1089;&#1080; &#1089;&#1086;&#1093;&#1088;&#1072;&#1085;&#1103;&#1102;&#1090;&#1089;&#1103; &#1085;&#1072; &#1089;&#1077;&#1088;&#1074;&#1077;&#1088;&#1077; &#1080; &#1080;&#1089;&#1087;&#1086;&#1083;&#1100;&#1079;&#1091;&#1102;&#1090;&#1089;&#1103; &#1074; &#1089;&#1083;&#1077;&#1076;&#1091;&#1102;&#1097;&#1080;&#1093; &#1086;&#1090;&#1074;&#1077;&#1090;&#1072;&#1093;.</div>
       </form>
@@ -224,7 +263,7 @@
       loadFail: "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0431\u0430\u0437\u0443"
     };
     const messages = document.querySelector("#messages");
-    const statusEl = document.querySelector("#status");
+    const statusEl = { textContent: "" };
     const knowledgeEl = document.querySelector("#knowledge");
     const chatForm = document.querySelector("#chatForm");
     const trainForm = document.querySelector("#trainForm");
@@ -233,6 +272,33 @@
     const kindEl = document.querySelector("#kind");
     const questionEl = document.querySelector("#question");
     const answerEl = document.querySelector("#answer");
+    const avatarImage = document.querySelector("#avatarImage");
+    const heroImage = document.querySelector("#heroImage");
+    const imagePlaceholder = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 240"><rect width="100%" height="100%" fill="#eef1f5"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" fill="#667085">medaix ru</text></svg>');
+
+    function applyImageFallback(event) {
+      const img = event.currentTarget;
+      img.onerror = null;
+      img.src = imagePlaceholder;
+    }
+
+    [avatarImage, heroImage].forEach((img) => {
+      if (!img) return;
+      img.addEventListener("error", applyImageFallback);
+      img.addEventListener("click", (event) => event.preventDefault());
+      img.addEventListener("mousedown", (event) => event.preventDefault());
+      img.addEventListener("mouseup", (event) => event.preventDefault());
+      img.addEventListener("touchstart", (event) => event.preventDefault(), { passive: false });
+      img.addEventListener("contextmenu", (event) => event.preventDefault());
+    });
+
+    document.addEventListener("gesturestart", (event) => event.preventDefault(), { passive: false });
+    document.addEventListener("gesturechange", (event) => event.preventDefault(), { passive: false });
+    document.addEventListener("gestureend", (event) => event.preventDefault(), { passive: false });
+    document.addEventListener("touchmove", (event) => {
+      if (event.touches && event.touches.length > 1) event.preventDefault();
+    }, { passive: false });
+    document.addEventListener("dblclick", (event) => event.preventDefault(), { passive: false });
 
     function setStatus(text) { statusEl.textContent = text; }
 

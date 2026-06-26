@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "categories": {
+    "anatomy": {
+      "file": "anatomy.jsonl",
+      "target_count": 1000,
+      "imported_count": 877,
+      "last_batch": 4
+    },
+    "substances": {
+      "file": "substances.jsonl",
+      "target_count": 10000,
+      "imported_count": 580,
+      "last_batch": 8
+    },
+    "drugs": {
+      "file": "drugs.jsonl",
+      "target_count": 100000,
+      "imported_count": 1440,
+      "last_batch": 8
+    },
+    "companies": {
+      "file": "companies.jsonl",
+      "target_count": 5000,
+      "imported_count": 738,
+      "last_batch": 8
+    },
+    "diseases": {
+      "file": "diseases.jsonl",
+      "target_count": 10000,
+      "imported_count": 7500,
+      "last_batch": 30
+    },
+    "specialties": {
+      "file": "specialties.jsonl",
+      "target_count": 0,
+      "imported_count": 67,
+      "last_batch": 1
+    },
+    "instruments": {
+      "file": "instruments.jsonl",
+      "target_count": 500,
+      "imported_count": 387,
+      "last_batch": 2
+    }
+  }
+}

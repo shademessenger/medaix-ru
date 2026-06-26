@@ -5,10 +5,13 @@ import os
 import re
 import sqlite3
 import time
+import mimetypes
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+from dataset_pipeline import run_startup_sync
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = APP_DIR / "data.sqlite3"
@@ -91,12 +94,149 @@ INTENT_RULES = [
     ({"горло"}, ["боль в горле"]),
 ]
 
+STOPWORDS = {
+    "что", "што", "че", "чё", "как", "когда", "куда", "почему", "зачем",
+    "можно", "надо", "нужно", "делать", "сделать", "помоги", "помогите",
+    "меня", "мне", "мой", "моя", "мои", "тебя", "это", "или", "при", "для",
+    "без", "под", "над", "про", "есть", "быть", "был", "была", "уже", "очень",
+    "сильно", "немного", "вроде", "типа", "скажи", "скажите", "подскажите",
+    "вопрос", "ответ", "симптом", "симптомы", "термин", "значит", "такое",
+    "what", "when", "where", "why", "how", "the", "and", "with", "without",
+    "symptom", "symptoms", "cause", "causes", "treatment", "treatments",
+    "medical", "term", "topic", "attack", "disease", "disorder",
+}
+
+ALIASES = {
+    "грудь": ["груди", "грудной", "грудная", "грудина", "грудине"],
+    "сердце": ["кардио", "инфаркт", "сердечный", "сердечная", "миокард"],
+    "боль": ["болит", "ноет", "колит", "режет", "тянет", "ломит", "жжет", "жжёт"],
+    "одышка": ["дышать", "дыхание", "задыхаюсь", "удушье", "нехватка воздуха", "тяжело дышать"],
+    "инсульт": ["перекосило", "речь", "онемела", "онемение", "паралич", "лицо", "рука"],
+    "температура": ["темпа", "жар", "лихорадка", "озноб"],
+    "диарея": ["понос", "жидкий стул"],
+    "рвота": ["тошнит", "тошнота", "вырвало", "рвет", "рвёт"],
+    "аллергия": ["сыпь", "отек", "отёк", "квинке", "анафилаксия", "чешется"],
+    "давление": ["ад", "гипертония", "гипертензия", "тонометр"],
+    "сахар": ["глюкоза", "диабет", "инсулин"],
+    "рана": ["порез", "царапина", "кровь", "кровотечение"],
+    "ожог": ["обжег", "обжёг", "обожглась", "обжегся", "кипяток"],
+    "лекарство": ["таблетка", "таблетки", "препарат", "медикамент", "доза"],
+    "антибиотик": ["антибиотики", "амоксиклав", "амоксициллин", "азитромицин"],
+    "парацетамол": ["ацетаминофен", "панадол", "тайленол", "paracetamol"],
+    "ибупрофен": ["нурофен", "нпвп", "ibuprofen"],
+    "аспирин": ["ацетилсалициловая", "ацетилсалициловая кислота", "аса"],
+    "печень": ["гепато", "гепатит", "желчь"],
+    "почка": ["почки", "почечный", "моча", "нефро"],
+    "желудок": ["живот", "гастрит", "эпигастрий"],
+    "мозг": ["голова", "головной", "цнс", "нейро"],
+    "легкие": ["лёгкие", "легкое", "лёгкое", "бронхи", "пневмония"],
+    "беременность": ["беременна", "беременная", "плод", "шевеления"],
+    "травма": ["ударился", "упал", "ушиб", "перелом", "вывих"],
+    "голова": ["головная", "мигрень", "затылок", "висок"],
+    "моча": ["писать", "мочеиспускание", "цистит", "почки"],
+    "кашель": ["кашляю", "кашляет", "бронхит"],
+    "горло": ["ангина", "фарингит", "тонзиллит"],
+}
+
+INTENT_RULES = [
+    ({"боль", "грудь"}, ["боль в груди", "инфаркт миокарда"]),
+    ({"сердце", "грудь"}, ["боль в груди", "инфаркт миокарда"]),
+    ({"инсульт"}, ["инсульт"]),
+    ({"одышка"}, ["одышка"]),
+    ({"аллергия"}, ["аллергия", "анафилаксия"]),
+    ({"рана", "кровотечение"}, ["кровотечение"]),
+    ({"ожог"}, ["ожог"]),
+    ({"температура"}, ["лихорадка", "температура"]),
+    ({"диарея", "рвота"}, ["диарея", "рвота"]),
+    ({"живот", "боль"}, ["боль в животе"]),
+    ({"голова", "боль"}, ["головная боль"]),
+    ({"антибиотик"}, ["антибиотик"]),
+    ({"парацетамол"}, ["парацетамол"]),
+    ({"ибупрофен"}, ["ибупрофен"]),
+    ({"давление"}, ["артериальное давление"]),
+    ({"сахар"}, ["глюкоза", "сахар"]),
+    ({"беременность"}, ["беременность"]),
+    ({"моча"}, ["мочеиспускание", "цистит"]),
+    ({"кашель"}, ["кашель"]),
+    ({"горло"}, ["боль в горле"]),
+]
+
+RUSSIAN_MEDICAL_SEED = [
+    ("term", "парацетамол; ацетаминофен; панадол", "Парацетамол — обезболивающее и жаропонижающее действующее вещество. Применяется при боли и повышенной температуре. В обычных дозах не относится к НПВП и почти не действует на воспаление. Основной риск — токсическое поражение печени при превышении дозы или сочетании с алкоголем."),
+    ("term", "ибупрофен; нурофен; нпвп", "Ибупрофен — нестероидное противовоспалительное средство: уменьшает боль, температуру и воспаление за счет подавления циклооксигеназы и синтеза простагландинов. Может раздражать желудок, повышать риск кровотечений и влиять на почки."),
+    ("term", "аспирин; ацетилсалициловая кислота", "Аспирин — ацетилсалициловая кислота, НПВП и антиагрегант. В малых дозах снижает агрегацию тромбоцитов, в больших дозах действует как обезболивающее и жаропонижающее."),
+    ("term", "амоксициллин; антибиотик пенициллин", "Амоксициллин — бета-лактамный антибиотик из группы пенициллинов. Нарушает синтез клеточной стенки бактерий. Используется при чувствительных бактериальных инфекциях."),
+    ("term", "азитромицин; макролид", "Азитромицин — антибиотик группы макролидов. Подавляет синтез белка бактерий. Используется при некоторых инфекциях дыхательных путей, кожи и урогенитальных инфекциях."),
+    ("term", "метформин", "Метформин — сахароснижающее средство для лечения сахарного диабета 2 типа. Уменьшает продукцию глюкозы в печени и повышает чувствительность тканей к инсулину."),
+    ("term", "омепразол; ингибитор протонной помпы", "Омепразол — ингибитор протонной помпы. Снижает секрецию соляной кислоты в желудке. Используется при рефлюксе, язвенной болезни и состояниях с повышенной кислотностью."),
+    ("term", "лоратадин; антигистаминный препарат", "Лоратадин — антигистаминный препарат второго поколения. Блокирует H1-рецепторы и уменьшает проявления аллергии: насморк, зуд, чихание, крапивницу."),
+    ("term", "цетиризин; антигистаминный препарат", "Цетиризин — антигистаминный препарат второго поколения. Используется при аллергическом рините, конъюнктивите, кожном зуде и крапивнице."),
+    ("term", "инсульт", "Инсульт — острое нарушение мозгового кровообращения. Бывает ишемическим из-за закупорки сосуда или геморрагическим из-за кровоизлияния. Типичные признаки: слабость или онемение одной стороны тела, нарушение речи, перекос лица, внезапная сильная головная боль, нарушение зрения."),
+    ("term", "инфаркт миокарда", "Инфаркт миокарда — участок некроза сердечной мышцы из-за резкого нарушения кровотока по коронарной артерии. Часто проявляется давящей болью за грудиной, одышкой, холодным потом, слабостью, тошнотой."),
+    ("term", "артериальное давление; давление", "Артериальное давление — сила, с которой кровь давит на стенки артерий. Записывается двумя числами: систолическое и диастолическое давление."),
+    ("term", "гипертония; артериальная гипертензия", "Гипертония — устойчивое повышение артериального давления. Связана с повышенной нагрузкой на сердце, сосуды, почки, мозг и сетчатку."),
+    ("term", "глюкоза; сахар крови", "Глюкоза — основной углевод крови и важный источник энергии для клеток. Ее уровень регулируется инсулином, глюкагоном и работой печени."),
+    ("term", "сахарный диабет", "Сахарный диабет — группа заболеваний с хроническим повышением глюкозы крови из-за дефицита инсулина, инсулинорезистентности или их сочетания."),
+    ("term", "печень", "Печень — крупный орган брюшной полости. Участвует в обмене веществ, обезвреживании токсинов, синтезе белков крови, образовании желчи и хранении гликогена."),
+    ("term", "почка; почки", "Почки — парные органы мочевыделительной системы. Фильтруют кровь, образуют мочу, регулируют водно-солевой баланс, давление и кислотно-щелочное состояние."),
+    ("term", "сердце", "Сердце — мышечный орган, который перекачивает кровь по сосудам. Состоит из четырех камер: двух предсердий и двух желудочков."),
+    ("term", "легкие; лёгкие", "Легкие — органы дыхательной системы, где происходит газообмен: кислород поступает в кровь, углекислый газ выводится из организма."),
+    ("term", "желудок", "Желудок — орган пищеварительной системы, где пища перемешивается с желудочным соком и начинается активное переваривание белков."),
+    ("term", "кишечник", "Кишечник — отдел пищеварительной системы, где продолжается переваривание пищи, всасываются питательные вещества и формируются каловые массы."),
+    ("term", "мозг; головной мозг", "Головной мозг — центральный орган нервной системы. Управляет движениями, чувствительностью, речью, памятью, эмоциями, дыханием, сердечным ритмом и другими функциями."),
+    ("term", "анемия", "Анемия — состояние, при котором снижено количество гемоглобина или эритроцитов. Может проявляться слабостью, бледностью, одышкой, сердцебиением, утомляемостью."),
+    ("term", "пневмония", "Пневмония — воспаление легочной ткани, чаще инфекционного происхождения. Может проявляться кашлем, температурой, болью в груди, одышкой, слабостью."),
+    ("term", "бронхит", "Бронхит — воспаление бронхов. Основные проявления: кашель, мокрота, дискомфорт в груди, иногда температура и свистящее дыхание."),
+    ("term", "гастрит", "Гастрит — воспаление слизистой оболочки желудка. Может сопровождаться болью или дискомфортом в верхней части живота, тошнотой, изжогой, ранним насыщением."),
+    ("term", "цистит", "Цистит — воспаление мочевого пузыря. Часто проявляется частым мочеиспусканием, резью, жжением, болью над лобком, мутной мочой."),
+    ("term", "аллергия", "Аллергия — чрезмерная реакция иммунной системы на аллерген. Может проявляться насморком, зудом, сыпью, отеком, кашлем, бронхоспазмом."),
+    ("term", "анафилаксия", "Анафилаксия — тяжелая системная аллергическая реакция с быстрым развитием отека, бронхоспазма, падения давления, слабости и нарушений дыхания."),
+    ("term", "мигрень", "Мигрень — неврологическое заболевание с приступами головной боли, часто пульсирующей и односторонней, с тошнотой, светобоязнью или чувствительностью к звукам."),
+    ("term", "отит", "Отит — воспаление уха. Может быть наружным, средним или внутренним. Часто проявляется болью в ухе, снижением слуха, заложенностью, выделениями."),
+    ("term", "фарингит", "Фарингит — воспаление слизистой оболочки глотки. Проявляется болью или першением в горле, сухостью, кашлем, дискомфортом при глотании."),
+    ("term", "тонзиллит; ангина", "Тонзиллит — воспаление небных миндалин. Может проявляться болью в горле, температурой, налетом на миндалинах, увеличением лимфоузлов."),
+    ("term", "ринит; насморк", "Ринит — воспаление слизистой оболочки носа. Проявляется заложенностью, выделениями из носа, чиханием, зудом."),
+    ("term", "ожог", "Ожог — повреждение тканей из-за высокой температуры, химических веществ, электричества или излучения. Оценивается по глубине и площади поражения."),
+    ("term", "перелом", "Перелом — нарушение целостности кости. Может сопровождаться болью, отеком, деформацией, нарушением функции и патологической подвижностью."),
+    ("term", "вывих", "Вывих — смещение суставных поверхностей костей с нарушением нормального положения сустава. Проявляется болью, деформацией и ограничением движения."),
+    ("term", "кровотечение", "Кровотечение — выход крови из сосудов. Бывает наружным или внутренним, артериальным, венозным, капиллярным или смешанным."),
+    ("term", "лихорадка; температура", "Лихорадка — повышение температуры тела как часть реакции организма на инфекцию, воспаление, травму или другие процессы."),
+    ("term", "диарея; понос", "Диарея — учащенный жидкий стул. Может быть связана с инфекцией, пищевой непереносимостью, лекарствами, воспалительными заболеваниями кишечника."),
+    ("term", "рвота", "Рвота — рефлекторное выведение содержимого желудка через рот. Может быть связана с инфекциями, отравлением, мигренью, беременностью, заболеваниями ЖКТ."),
+    ("term", "одышка", "Одышка — субъективное ощущение нехватки воздуха или затрудненного дыхания. Может быть связана с легкими, сердцем, анемией, тревогой и другими состояниями."),
+    ("term", "кашель", "Кашель — защитный рефлекс дыхательных путей. Бывает сухим или влажным, острым или хроническим, связанным с инфекцией, аллергией, рефлюксом и другими причинами."),
+    ("term", "антибиотик", "Антибиотик — лекарственное средство, действующее на бактерии. Не действует на вирусы. Выбор зависит от предполагаемого возбудителя, локализации инфекции и чувствительности бактерий."),
+]
+
 CANONICAL = {}
 for key, values in ALIASES.items():
     CANONICAL[key] = key
     for value in values:
+        CANONICAL[value] = key
         for part in value.split():
-            CANONICAL[part] = key
+            if len(part) > 2:
+                CANONICAL[part] = key
+
+SIMILAR_WORDS = {}
+for key, values in ALIASES.items():
+    SIMILAR_WORDS[key] = key
+    for value in values:
+        if len(value) > 3:
+            SIMILAR_WORDS[value] = key
+        for part in value.split():
+            if len(part) > 3:
+                SIMILAR_WORDS[part] = key
+for _, question, _ in RUSSIAN_MEDICAL_SEED:
+    names = [part.strip() for part in question.split(";") if part.strip()]
+    if not names:
+        continue
+    main_name = names[0]
+    for name in names:
+        if len(name) > 3:
+            SIMILAR_WORDS[name] = main_name
+        for part in name.split():
+            if len(part) > 3:
+                SIMILAR_WORDS[part] = main_name
 
 
 def db():
@@ -119,6 +259,25 @@ def init_db():
             """
         )
         conn.execute("create index if not exists idx_knowledge_kind on knowledge(kind)")
+
+
+def seed_russian_medical_terms():
+    added = 0
+    now = int(time.time())
+    with db() as conn:
+        for kind, question, answer in RUSSIAN_MEDICAL_SEED:
+            exists = conn.execute(
+                "select 1 from knowledge where lower(question) = lower(?) limit 1",
+                (question,),
+            ).fetchone()
+            if exists:
+                continue
+            conn.execute(
+                "insert into knowledge(kind, question, answer, created_at) values(?,?,?,?)",
+                (kind, question, answer, now),
+            )
+            added += 1
+    return added
 
 
 def normalize_text(text):
@@ -144,6 +303,21 @@ def stem_ru(word):
     return word
 
 
+def similar_terms(word):
+    if len(word) < 4:
+        return []
+    if word in CANONICAL:
+        return [CANONICAL[word]]
+    cutoff = 0.72 if len(word) >= 7 else 0.8
+    matches = difflib.get_close_matches(word, SIMILAR_WORDS.keys(), n=4, cutoff=cutoff)
+    result = []
+    for match in matches:
+        canon = SIMILAR_WORDS.get(match, match)
+        if canon not in result:
+            result.append(canon)
+    return result
+
+
 def token_set(text):
     result = set()
     words = raw_tokens(text)
@@ -155,6 +329,9 @@ def token_set(text):
         result.add(stem_ru(canon))
         if word != canon:
             result.add(stem_ru(word))
+        for similar in similar_terms(word):
+            result.add(similar)
+            result.add(stem_ru(similar))
     joined = " ".join(words)
     for canon, aliases in ALIASES.items():
         if canon in joined or any(alias in joined for alias in aliases):
@@ -167,7 +344,7 @@ def fuzzy_overlap(query_tokens, hay_tokens):
     for qt in query_tokens:
         if len(qt) < 5:
             continue
-        best = difflib.get_close_matches(qt, hay_tokens, n=1, cutoff=0.78)
+        best = difflib.get_close_matches(qt, hay_tokens, n=1, cutoff=0.72)
         if best:
             score += 1
     return score
@@ -233,7 +410,6 @@ def wants_definition(message):
         return False
     return 1 <= len(informative) <= 3
 
-
 def term_definition_match(message, rows):
     if not wants_definition(message):
         return None
@@ -252,11 +428,40 @@ def term_definition_match(message, rows):
     return sorted(candidates, key=lambda x: x[0], reverse=True)[0][1]
 
 
+def load_candidate_rows(conn, message, limit=1500):
+    tokens = [token for token in token_set(message) if token not in STOPWORDS and len(token) > 2]
+    for token in list(tokens):
+        tokens.extend(alias for alias in ALIASES.get(token, []) if len(alias) > 2)
+    seen = set()
+    tokens = [token for token in tokens if not (token in seen or seen.add(token))][:10]
+    if not tokens:
+        return conn.execute(
+            "select id, kind, question, answer, created_at from knowledge order by id desc limit ?",
+            (limit,),
+        ).fetchall()
+
+    clauses = []
+    params = []
+    for token in tokens:
+        clauses.append("(lower(question) like ? or lower(answer) like ?)")
+        like = "%" + token.lower() + "%"
+        params.extend([like, like])
+    params.append(limit)
+    return conn.execute(
+        f"""
+        select id, kind, question, answer, created_at
+        from knowledge
+        where {" or ".join(clauses)}
+        order by id desc
+        limit ?
+        """,
+        params,
+    ).fetchall()
+
+
 def best_answer(message):
     with db() as conn:
-        rows = conn.execute(
-            "select id, kind, question, answer, created_at from knowledge order by id desc"
-        ).fetchall()
+        rows = load_candidate_rows(conn, message)
     term_row = term_definition_match(message, rows)
     if term_row:
         other_ranked = sorted(
@@ -307,14 +512,7 @@ def best_answer(message):
     if top["kind"] == "fact":
         answer = "\u0412\u043e\u0442 \u0447\u0442\u043e \u044f \u043d\u0430\u0448\u0435\u043b \u0432 \u043e\u0431\u0443\u0447\u0430\u044e\u0449\u0435\u0439 \u0431\u0430\u0437\u0435: " + answer
     elif top["kind"] == "term":
-        answer = (
-            answer
-            + "\n\n\u041c\u043e\u0433\u0443 \u043d\u0430\u0439\u0442\u0438 "
-            "\u043f\u043e\u0445\u043e\u0436\u0438\u0435 \u0437\u0430\u043f\u0438\u0441\u0438, "
-            "\u0435\u0441\u043b\u0438 \u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c "
-            "\u0441\u0438\u043c\u043f\u0442\u043e\u043c\u044b \u0438\u043b\u0438 "
-            "\u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442."
-        )
+        answer = answer
     return {
         "answer": answer,
         "matches": [
@@ -352,6 +550,23 @@ class Handler(BaseHTTPRequestHandler):
         if include_body:
             self.wfile.write(body)
 
+    def send_asset(self, path, include_body=True):
+        name = path.removeprefix("/ai/assets/").strip("/")
+        if not name or "/" in name or "\\" in name:
+            return self.send_json({"error": "не найдено"}, HTTPStatus.NOT_FOUND)
+        asset_path = APP_DIR / "assets" / name
+        if not asset_path.is_file():
+            return self.send_json({"error": "не найдено"}, HTTPStatus.NOT_FOUND)
+        body = asset_path.read_bytes()
+        content_type = mimetypes.guess_type(asset_path.name)[0] or "application/octet-stream"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if include_body:
+            self.wfile.write(body)
+
     def read_json(self):
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length)
@@ -362,6 +577,8 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         if path in ("/ai", "/ai/"):
             return self.send_html()
+        if path.startswith("/ai/assets/"):
+            return self.send_asset(path)
         if path == "/ai/api/knowledge":
             query = (parse_qs(parsed.query).get("q", [""])[0] or "").strip()
             with db() as conn:
@@ -382,12 +599,14 @@ class Handler(BaseHTTPRequestHandler):
                         "select id, kind, question, answer, created_at from knowledge order by id desc limit 100"
                     ).fetchall()
             return self.send_json({"items": [dict(row) for row in rows]})
-        return self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        return self.send_json({"error": "не найдено"}, HTTPStatus.NOT_FOUND)
 
     def do_HEAD(self):
         path = urlparse(self.path).path
         if path in ("/ai", "/ai/"):
             return self.send_html(include_body=False)
+        if path.startswith("/ai/assets/"):
+            return self.send_asset(path, include_body=False)
         self.send_response(HTTPStatus.NOT_FOUND)
         self.end_headers()
 
@@ -396,12 +615,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = self.read_json()
         except Exception:
-            return self.send_json({"error": "invalid json"}, HTTPStatus.BAD_REQUEST)
+            return self.send_json({"error": "некорректный JSON"}, HTTPStatus.BAD_REQUEST)
 
         if path == "/ai/api/chat":
             message = (payload.get("message") or "").strip()
             if not message:
-                return self.send_json({"error": "message is required"}, HTTPStatus.BAD_REQUEST)
+                return self.send_json({"error": "сообщение обязательно"}, HTTPStatus.BAD_REQUEST)
             return self.send_json(best_answer(message))
 
         if path == "/ai/api/train":
@@ -409,9 +628,9 @@ class Handler(BaseHTTPRequestHandler):
             question = (payload.get("question") or "").strip()
             answer = (payload.get("answer") or "").strip()
             if kind == "qa" and not question:
-                return self.send_json({"error": "question is required for qa"}, HTTPStatus.BAD_REQUEST)
+                return self.send_json({"error": "вопрос обязателен для формата вопрос-ответ"}, HTTPStatus.BAD_REQUEST)
             if not answer:
-                return self.send_json({"error": "answer/fact is required"}, HTTPStatus.BAD_REQUEST)
+                return self.send_json({"error": "ответ или факт обязателен"}, HTTPStatus.BAD_REQUEST)
             with db() as conn:
                 cur = conn.execute(
                     "insert into knowledge(kind, question, answer, created_at) values(?,?,?,?)",
@@ -431,25 +650,28 @@ class Handler(BaseHTTPRequestHandler):
             question = (payload.get("question") or "").strip()
             answer = (payload.get("answer") or "").strip()
             if not item_id:
-                return self.send_json({"error": "id is required"}, HTTPStatus.BAD_REQUEST)
+                return self.send_json({"error": "id обязателен"}, HTTPStatus.BAD_REQUEST)
             if kind == "qa" and not question:
-                return self.send_json({"error": "question is required for qa"}, HTTPStatus.BAD_REQUEST)
+                return self.send_json({"error": "вопрос обязателен для формата вопрос-ответ"}, HTTPStatus.BAD_REQUEST)
             if not answer:
-                return self.send_json({"error": "answer/fact is required"}, HTTPStatus.BAD_REQUEST)
+                return self.send_json({"error": "ответ или факт обязателен"}, HTTPStatus.BAD_REQUEST)
             with db() as conn:
                 cur = conn.execute(
                     "update knowledge set kind = ?, question = ?, answer = ? where id = ?",
                     (kind, question, answer, item_id),
                 )
             if cur.rowcount == 0:
-                return self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                return self.send_json({"error": "не найдено"}, HTTPStatus.NOT_FOUND)
             return self.send_json({"ok": True})
 
-        return self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        return self.send_json({"error": "не найдено"}, HTTPStatus.NOT_FOUND)
 
 
 if __name__ == "__main__":
     init_db()
+    sync_result = run_startup_sync(remove_incoming=True)
+    russian_seed_added = seed_russian_medical_terms()
+    print(json.dumps({"startup_sync": sync_result, "russian_seed_added": russian_seed_added}, ensure_ascii=False))
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Trainable AI listening on http://{HOST}:{PORT}/ai")
     httpd.serve_forever()
