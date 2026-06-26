@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/ai/assets/:path*",
+      "destination": "/assets/:path*"
+    },
+    {
       "source": "/ai/api/:path*",
       "destination": "/api/:path*"
     },
